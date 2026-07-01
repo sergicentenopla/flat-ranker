@@ -11,3 +11,10 @@ class PisoDB(Base):
     direccion = Column(String)
     link = Column(String, nullable=True)
     notas = Column(String, nullable=True)
+
+class SitioIntereDB(Base):
+    __tablename__ = "sitios_interes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String)
+    direccion = Column(String)
