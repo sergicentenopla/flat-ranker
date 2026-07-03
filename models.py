@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -12,6 +12,11 @@ class PisoDB(Base):
     direccion = Column(String)
     link = Column(String, nullable=True)
     notas = Column(String, nullable=True)
+    planta = Column(Integer, nullable=True)
+    ascensor = Column(Boolean, nullable=True)
+    terraza = Column(Boolean, nullable=True)
+    parking = Column(Boolean, nullable=True)
+    anyo_construccion = Column(Integer, nullable=True)
 
     sitios = relationship("SitioIntereDB", back_populates="piso", cascade="all, delete")
 
@@ -21,6 +26,7 @@ class SitioIntereDB(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String)
     direccion = Column(String)
+    peso = Column(Float, default=1.0)
     piso_id = Column(Integer, ForeignKey("pisos.id"))
 
     piso = relationship("PisoDB", back_populates="sitios")

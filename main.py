@@ -17,6 +17,8 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+# ── Modelos Pydantic ──────────────────────────────────────────
+
 class PisoCreate(BaseModel):
     precio: float
     metros: float
@@ -24,16 +26,23 @@ class PisoCreate(BaseModel):
     direccion: str
     link: Optional[str] = None
     notas: Optional[str] = None
+    planta: Optional[int] = None
+    ascensor: Optional[bool] = None
+    terraza: Optional[bool] = None
+    parking: Optional[bool] = None
+    anyo_construccion: Optional[int] = None
 
 class SitioInteresCreate(BaseModel):
     nombre: str
     direccion: str
+    peso: float = 1.0
 
 class Pesos(BaseModel):
-    precio: float = 40
-    metros: float = 30
-    habitaciones: float = 10
-    ubicacion: float = 20
+    valor: float = 40.0
+    conectividad: float = 40.0
+    habitabilidad: float = 20.0
+
+# ── Utilidades ────────────────────────────────────────────────
 
 def get_db():
     db = SessionLocal()
@@ -51,6 +60,67 @@ def texto_a_minutos(texto: str) -> int:
     if minutos:
         total += int(minutos.group(1))
     return total if total > 0 else 999
+
+def normalizar(valor, minimo, maximo):
+    if maximo == minimo:
+        return 100.0
+    return (valor - minimo) / (maximo - minimo) * 100
+
+def normalizar_invertido(valor, minimo, maximo):
+    if maximo == minimo:
+        return 100.0
+    return (maximo - valor) / (maximo - minimo) * 100
+
+def calcular_habitabilidad(piso: PisoDB) -> Optional[float]:
+    puntos = []
+    if piso.ascensor is not None:
+        puntos.append(100.0 if piso.ascensor else 0.0)
+    if piso.terraza is not None:
+        puntos.append(100.0 if piso.terraza else 0.0)
+    if piso.parking is not None:
+        puntos.append(100.0 if piso.parking else 0.0)
+    if piso.planta is not None:
+        puntos.append(min(piso.planta * 10, 100.0))
+    if piso.anyo_construccion is not None:
+        score_anyo = normalizar(piso.anyo_construccion, 1950, 2024)
+        puntos.append(score_anyo)
+    if not puntos:
+        return None
+    return sum(puntos) / len(puntos)
+
+def generar_comentarios(piso, tiempo_medio, precio_metro, media_precio_metro, media_metros):
+    positivos = []
+    negativos = []
+
+    if precio_metro < media_precio_metro * 0.85:
+        positivos.append("Buen precio por metro cuadrado")
+    elif precio_metro > media_precio_metro * 1.15:
+        negativos.append("Precio elevado para su tamaño")
+
+    if tiempo_medio < 15:
+        positivos.append("Muy bien ubicado")
+    elif tiempo_medio < 30:
+        positivos.append("Buena ubicación")
+    elif tiempo_medio > 45:
+        negativos.append("Lejos de tus puntos de interés")
+    elif tiempo_medio > 30:
+        negativos.append("Ubicación algo alejada")
+
+    if piso.metros > media_metros * 1.15:
+        positivos.append("Espacioso respecto a los demás")
+    elif piso.metros < media_metros * 0.85:
+        negativos.append("Algo pequeño respecto a los demás")
+
+    if piso.terraza:
+        positivos.append("Tiene terraza")
+    if piso.parking:
+        positivos.append("Incluye parking")
+    if piso.ascensor is False and piso.planta and piso.planta > 2:
+        negativos.append("Sin ascensor en planta alta")
+
+    return positivos, negativos
+
+# ── Endpoints: Pisos ──────────────────────────────────────────
 
 @app.get("/")
 def read_root():
@@ -95,6 +165,8 @@ def borrar_piso(piso_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"mensaje": f"Piso {piso_id} borrado"}
 
+# ── Endpoints: Sitios de interés ──────────────────────────────
+
 @app.post("/pisos/{piso_id}/sitios")
 def crear_sitio(piso_id: int, sitio: SitioInteresCreate, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
@@ -124,6 +196,8 @@ def borrar_sitio(piso_id: int, sitio_id: int, db: Session = Depends(get_db)):
     db.delete(sitio)
     db.commit()
     return {"mensaje": f"Sitio {sitio_id} borrado"}
+
+# ── Endpoints: Distancias ─────────────────────────────────────
 
 @app.get("/pisos/{piso_id}/distancias")
 def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
@@ -159,7 +233,6 @@ def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
             if elemento["status"] == "OK":
                 duracion_texto = elemento["duration"]["text"]
                 minutos = texto_a_minutos(duracion_texto)
-
                 nueva_distancia = DistanciaDB(
                     sitio_id=sitio.id,
                     modo=modo,
@@ -168,7 +241,6 @@ def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
                     duracion_minutos=minutos
                 )
                 db.add(nueva_distancia)
-
                 tiempos[etiqueta] = {
                     "distancia": elemento["distance"]["text"],
                     "duracion": duracion_texto
@@ -180,12 +252,11 @@ def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
                 }
 
         db.commit()
-        resultados.append({
-            "sitio": sitio.nombre,
-            "tiempos": tiempos
-        })
+        resultados.append({"sitio": sitio.nombre, "tiempos": tiempos})
 
     return {"piso_id": piso_id, "distancias": resultados}
+
+# ── Endpoint: Scoring ─────────────────────────────────────────
 
 @app.post("/scoring")
 def calcular_scoring(pesos: Pesos, db: Session = Depends(get_db)):
@@ -193,55 +264,94 @@ def calcular_scoring(pesos: Pesos, db: Session = Depends(get_db)):
     if not pisos:
         return {"error": "No hay pisos guardados"}
 
-    precios = [p.precio for p in pisos]
-    metros = [p.metros for p in pisos]
-    habitaciones = [p.habitaciones for p in pisos]
+    # Calcular €/m² para todos los pisos
+    precios_metro = [p.precio / p.metros for p in pisos]
+    metros_lista = [p.metros for p in pisos]
 
-    def normalizar(valor, minimo, maximo):
-        if maximo == minimo:
-            return 100
-        return (valor - minimo) / (maximo - minimo) * 100
-
-    def normalizar_invertido(valor, minimo, maximo):
-        if maximo == minimo:
-            return 100
-        return (maximo - valor) / (maximo - minimo) * 100
-
+    # Calcular tiempo medio ponderado por POIs para cada piso
     tiempos_medios = []
     for piso in pisos:
-        minutos_por_piso = []
+        suma_ponderada = 0.0
+        suma_pesos = 0.0
         for sitio in piso.sitios:
-            distancia_transit = db.query(DistanciaDB).filter(
+            distancia = db.query(DistanciaDB).filter(
                 DistanciaDB.sitio_id == sitio.id,
                 DistanciaDB.modo == "transit"
             ).first()
-            if distancia_transit:
-                minutos_por_piso.append(distancia_transit.duracion_minutos)
-        tiempo_medio = sum(minutos_por_piso) / len(minutos_por_piso) if minutos_por_piso else 999
+            if distancia:
+                suma_ponderada += distancia.duracion_minutos * sitio.peso
+                suma_pesos += sitio.peso
+        tiempo_medio = (suma_ponderada / suma_pesos) if suma_pesos > 0 else None
         tiempos_medios.append(tiempo_medio)
 
+    # Calcular habitabilidad para cada piso
+    habitabilidades = [calcular_habitabilidad(p) for p in pisos]
+
     resultados = []
+    media_precio_metro = sum(precios_metro) / len(precios_metro)
+    media_metros = sum(metros_lista) / len(metros_lista)
+
     for i, piso in enumerate(pisos):
-        score_precio = normalizar_invertido(piso.precio, min(precios), max(precios))
-        score_metros = normalizar(piso.metros, min(metros), max(metros))
-        score_hab = normalizar(piso.habitaciones, min(habitaciones), max(habitaciones))
-        score_ubicacion = normalizar_invertido(tiempos_medios[i], min(tiempos_medios), max(tiempos_medios))
+
+        # Score Valor (€/m², invertido: menos es mejor)
+        score_valor = normalizar_invertido(
+            precios_metro[i], min(precios_metro), max(precios_metro)
+        )
+
+        # Score Conectividad
+        tiempos_validos = [t for t in tiempos_medios if t is not None]
+        if tiempos_medios[i] is not None and tiempos_validos:
+            score_conectividad = normalizar_invertido(
+                tiempos_medios[i], min(tiempos_validos), max(tiempos_validos)
+            )
+        else:
+            score_conectividad = None
+
+        # Score Habitabilidad
+        score_habitabilidad = habitabilidades[i]
+
+        # Redistribución automática de pesos si faltan dimensiones
+        peso_valor = pesos.valor
+        peso_conectividad = pesos.conectividad
+        peso_habitabilidad = pesos.habitabilidad
+
+        if score_conectividad is None and score_habitabilidad is None:
+            peso_valor = 100.0
+            peso_conectividad = 0.0
+            peso_habitabilidad = 0.0
+        elif score_conectividad is None:
+            total = peso_valor + peso_habitabilidad
+            peso_valor = (peso_valor / total) * 100
+            peso_habitabilidad = (peso_habitabilidad / total) * 100
+            peso_conectividad = 0.0
+        elif score_habitabilidad is None:
+            total = peso_valor + peso_conectividad
+            peso_valor = (peso_valor / total) * 100
+            peso_conectividad = (peso_conectividad / total) * 100
+            peso_habitabilidad = 0.0
 
         puntuacion = (
-            score_precio * pesos.precio +
-            score_metros * pesos.metros +
-            score_hab * pesos.habitaciones +
-            score_ubicacion * pesos.ubicacion
+            score_valor * peso_valor +
+            (score_conectividad or 0) * peso_conectividad +
+            (score_habitabilidad or 0) * peso_habitabilidad
         ) / 100
+
+        # Comentarios cualitativos
+        tiempo_para_comentarios = tiempos_medios[i] if tiempos_medios[i] is not None else 999
+        positivos, negativos = generar_comentarios(
+            piso, tiempo_para_comentarios,
+            precios_metro[i], media_precio_metro, media_metros
+        )
+
 
         resultados.append({
             "id": piso.id,
             "direccion": piso.direccion,
-            "precio": piso.precio,
-            "metros": piso.metros,
-            "habitaciones": piso.habitaciones,
-            "tiempo_medio_transporte": f"{int(tiempos_medios[i])} min" if tiempos_medios[i] != 999 else "Sin calcular",
-            "puntuacion": round(puntuacion, 1)
+            "precio_por_metro": round(precios_metro[i], 2),
+            "tiempo_medio_transporte": f"{int(tiempos_medios[i])} min" if tiempos_medios[i] is not None else "Sin calcular",
+            "puntuacion": round(puntuacion, 1),
+            "positivos": positivos,
+            "negativos": negativos
         })
 
     resultados.sort(key=lambda x: x["puntuacion"], reverse=True)
