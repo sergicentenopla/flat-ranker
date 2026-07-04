@@ -49,8 +49,6 @@ export default function Home() {
       console.error(e)
     }
   }
-
-  const [slowLoad, setSlowLoad] = useState(false)
   
 if (loading) return (
   <div style={{ textAlign: 'center', padding: '3rem' }}>
