@@ -7,16 +7,11 @@ export default function Home() {
   const [ranking, setRanking] = useState([])
   const [loading, setLoading] = useState(true)
   const [pesos, setPesos] = useState({ valor: 40, conectividad: 40, habitabilidad: 20 })
-  const [slowLoad, setSlowLoad] = useState(false)
+  const [serverError, setServerError] = useState(false)
 
   useEffect(() => {
     fetchData()
   }, [])
-
-  useEffect(() => {
-  const timer = setTimeout(() => setSlowLoad(true), 3000)
-  return () => clearTimeout(timer)
-}, [])
 
   async function fetchData() {
     setLoading(true)
@@ -29,6 +24,8 @@ export default function Home() {
       setRanking(rankingRes.data)
     } catch (e) {
       console.error(e)
+      setServerError(true)
+      setLoading(false)
     } finally {
       setLoading(false)
     }
@@ -50,14 +47,14 @@ export default function Home() {
     }
   }
   
-if (loading) return (
+if (loading) return <p className="loading">Loading...</p>
+
+if (serverError) return (
   <div style={{ textAlign: 'center', padding: '3rem' }}>
-    <p className="loading">Loading...</p>
-    {slowLoad && (
-      <p style={{ color: '#868e96', fontSize: '0.85rem', marginTop: '1rem' }}>
-        Server is waking up, this may take up to 60 seconds on first load...
-      </p>
-    )}
+    <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>⏳ Connecting to server...</p>
+    <p style={{ color: '#868e96', fontSize: '0.85rem' }}>
+      Server is waking up, this may take up to 60 seconds. Please refresh in a moment.
+    </p>
   </div>
 )
 
