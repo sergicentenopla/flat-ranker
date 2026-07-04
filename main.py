@@ -1,10 +1,12 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import googlemaps
 import os
 import re
+from fastapi.middleware.cors import CORSMiddleware
+
 from dotenv import load_dotenv
 
 from database import engine, SessionLocal, Base
@@ -17,20 +19,29 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 # ── Modelos Pydantic ──────────────────────────────────────────
 
 class PisoCreate(BaseModel):
-    precio: float
-    metros: float
-    habitaciones: int
+    precio: float = Field(gt=0)
+    metros: float = Field(gt=0)
+    habitaciones: int = Field(gt=0)
     direccion: str
     link: Optional[str] = None
     notas: Optional[str] = None
-    planta: Optional[int] = None
+    planta: Optional[int] =  Field(default=None, ge=0)
     ascensor: Optional[bool] = None
     terraza: Optional[bool] = None
     parking: Optional[bool] = None
-    anyo_construccion: Optional[int] = None
+    anyo_construccion: Optional[int] = Field(default=None, ge=1800, le=2030)
 
 class SitioInteresCreate(BaseModel):
     nombre: str
@@ -93,30 +104,30 @@ def generar_comentarios(piso, tiempo_medio, precio_metro, media_precio_metro, me
     negativos = []
 
     if precio_metro < media_precio_metro * 0.85:
-        positivos.append("Buen precio por metro cuadrado")
+        positivos.append("Good price per m²")
     elif precio_metro > media_precio_metro * 1.15:
-        negativos.append("Precio elevado para su tamaño")
+        negativos.append("High price for its size")
 
     if tiempo_medio < 15:
-        positivos.append("Muy bien ubicado")
+        positivos.append("Excellent location")
     elif tiempo_medio < 30:
-        positivos.append("Buena ubicación")
+        positivos.append("Good location")
     elif tiempo_medio > 45:
-        negativos.append("Lejos de tus puntos de interés")
+        negativos.append("Far from your points of interest")
     elif tiempo_medio > 30:
-        negativos.append("Ubicación algo alejada")
+        negativos.append("Somewhat far from your points of interest")
 
     if piso.metros > media_metros * 1.15:
-        positivos.append("Espacioso respecto a los demás")
+        positivos.append("Spacious compared to others")
     elif piso.metros < media_metros * 0.85:
-        negativos.append("Algo pequeño respecto a los demás")
+        negativos.append("Small compared to others")
 
     if piso.terraza:
-        positivos.append("Tiene terraza")
+        positivos.append("Has terrace")
     if piso.parking:
-        positivos.append("Incluye parking")
+        positivos.append("Includes parking")
     if piso.ascensor is False and piso.planta and piso.planta > 2:
-        negativos.append("Sin ascensor en planta alta")
+        negativos.append("No elevator on high floor")
 
     return positivos, negativos
 
@@ -142,14 +153,14 @@ def listar_pisos(db: Session = Depends(get_db)):
 def obtener_piso(piso_id: int, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
     if piso is None:
-        return {"error": "Piso no encontrado"}
+        return {"error": "Flat not found"}
     return piso
 
 @app.put("/pisos/{piso_id}")
 def actualizar_piso(piso_id: int, piso_actualizado: PisoCreate, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
     if piso is None:
-        return {"error": "Piso no encontrado"}
+        return {"error": "Flat not found"}
     for campo, valor in piso_actualizado.dict().items():
         setattr(piso, campo, valor)
     db.commit()
@@ -160,10 +171,10 @@ def actualizar_piso(piso_id: int, piso_actualizado: PisoCreate, db: Session = De
 def borrar_piso(piso_id: int, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
     if piso is None:
-        return {"error": "Piso no encontrado"}
+        return {"error": "Flat not found"}
     db.delete(piso)
     db.commit()
-    return {"mensaje": f"Piso {piso_id} borrado"}
+    return {"mensaje": f"Flat {piso_id} deleted"}
 
 # ── Endpoints: Sitios de interés ──────────────────────────────
 
@@ -171,7 +182,7 @@ def borrar_piso(piso_id: int, db: Session = Depends(get_db)):
 def crear_sitio(piso_id: int, sitio: SitioInteresCreate, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
     if piso is None:
-        return {"error": "Piso no encontrado"}
+        return {"error": "Flat not found"}
     nuevo_sitio = SitioIntereDB(**sitio.dict(), piso_id=piso_id)
     db.add(nuevo_sitio)
     db.commit()
@@ -182,7 +193,7 @@ def crear_sitio(piso_id: int, sitio: SitioInteresCreate, db: Session = Depends(g
 def listar_sitios(piso_id: int, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
     if piso is None:
-        return {"error": "Piso no encontrado"}
+        return {"error": "Flat not found"}
     return piso.sitios
 
 @app.delete("/pisos/{piso_id}/sitios/{sitio_id}")
@@ -192,10 +203,10 @@ def borrar_sitio(piso_id: int, sitio_id: int, db: Session = Depends(get_db)):
         SitioIntereDB.piso_id == piso_id
     ).first()
     if sitio is None:
-        return {"error": "Sitio no encontrado"}
+        return {"error": "Point of interest not found"}
     db.delete(sitio)
     db.commit()
-    return {"mensaje": f"Sitio {sitio_id} borrado"}
+    return {"mensaje": f"Point of interest {sitio_id} deleted"}
 
 # ── Endpoints: Distancias ─────────────────────────────────────
 
@@ -203,17 +214,17 @@ def borrar_sitio(piso_id: int, sitio_id: int, db: Session = Depends(get_db)):
 def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
     piso = db.query(PisoDB).filter(PisoDB.id == piso_id).first()
     if piso is None:
-        return {"error": "Piso no encontrado"}
+        return {"error": "Flat not found"}
 
     sitios = piso.sitios
     if not sitios:
-        return {"error": "Este piso no tiene sitios de interés definidos"}
+        return {"error": "This flat has no points of interest defined"}
 
     modos = {
-        "driving": "Coche",
-        "transit": "Transporte público",
-        "walking": "A pie",
-        "bicycling": "Bicicleta"
+        "driving": "Car",
+        "transit": "Public transport",
+        "walking": "Walking",
+        "bicycling": "Bicycle"
     }
 
     resultados = []
@@ -247,8 +258,8 @@ def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
                 }
             else:
                 tiempos[etiqueta] = {
-                    "distancia": "No disponible",
-                    "duracion": "No disponible"
+                    "distancia": "Not available",
+                    "duracion": "Not available"
                 }
 
         db.commit()
@@ -262,7 +273,7 @@ def calcular_distancias(piso_id: int, db: Session = Depends(get_db)):
 def calcular_scoring(pesos: Pesos, db: Session = Depends(get_db)):
     pisos = db.query(PisoDB).all()
     if not pisos:
-        return {"error": "No hay pisos guardados"}
+        return {"error": "No flats saved"}
 
     # Calcular €/m² para todos los pisos
     precios_metro = [p.precio / p.metros for p in pisos]
@@ -348,7 +359,7 @@ def calcular_scoring(pesos: Pesos, db: Session = Depends(get_db)):
             "id": piso.id,
             "direccion": piso.direccion,
             "precio_por_metro": round(precios_metro[i], 2),
-            "tiempo_medio_transporte": f"{int(tiempos_medios[i])} min" if tiempos_medios[i] is not None else "Sin calcular",
+            "tiempo_medio_transporte": f"{int(tiempos_medios[i])} min" if tiempos_medios[i] is not None else "Not calculated",
             "puntuacion": round(puntuacion, 1),
             "positivos": positivos,
             "negativos": negativos
