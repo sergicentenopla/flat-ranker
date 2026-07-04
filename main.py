@@ -21,12 +21,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://flat-ranker.vercel.app"
-    ],
-    allow_origin_regex="https://flat-ranker.*\.vercel\.app",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
