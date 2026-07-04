@@ -25,6 +25,7 @@ app.add_middleware(
         "http://localhost:5173",
         "https://flat-ranker.vercel.app"
     ],
+    allow_origin_regex="https://flat-ranker.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
