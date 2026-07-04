@@ -52,9 +52,12 @@ if (loading) return <p className="loading">Loading...</p>
 if (serverError) return (
   <div style={{ textAlign: 'center', padding: '3rem' }}>
     <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>⏳ Connecting to server...</p>
-    <p style={{ color: '#868e96', fontSize: '0.85rem' }}>
-      Server is waking up, this may take up to 60 seconds. Please refresh in a moment.
+    <p style={{ color: '#868e96', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+      Server is waking up, this may take up to 60 seconds.
     </p>
+    <button className="btn btn-primary" onClick={() => { setServerError(false); setLoading(true); fetchData() }}>
+      Try again
+    </button>
   </div>
 )
 
